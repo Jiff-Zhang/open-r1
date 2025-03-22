@@ -23,9 +23,11 @@ model=DeepSeek-R1
 # max_new_tokens=32
 max_new_tokens=32768
 
+# n_proc=4
 # n_proc=16
-# n_proc=64
-n_proc=256
+# n_proc=32
+n_proc=64
+# n_proc=256
 temperature=0.6
 top_p=0.95
 

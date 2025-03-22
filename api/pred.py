@@ -10,6 +10,7 @@ import tiktoken
 import torch.multiprocessing as mp
 import requests
 import pickle
+from concurrent.futures import Executor, ThreadPoolExecutor, as_completed
 
 model_map = json.loads(open('config/model2path.json', encoding='utf-8').read())
 maxlen_map = json.loads(open('config/model2maxlen.json', encoding='utf-8').read())
@@ -84,7 +85,8 @@ def extract_answer(response):
         else:
             return None
 
-def get_pred(data, args, fout):
+# def get_pred(data, args, fout):
+def get_pred(item, args, fout):
     model = args.model
     if "gpt" in model or "o1" in model:
         tokenizer = tiktoken.encoding_for_model("gpt-4o-2024-08-06")
@@ -95,20 +97,21 @@ def get_pred(data, args, fout):
     #     api_key=API_KEY,
     #     timeout=TIME_OUT
     # )
-    for item in tqdm(data):
-        prompt = item['input_text']
-        output = query_llm(
-            prompt,
-            model,
-            tokenizer,
-            temperature=args.temperature,
-            max_new_tokens=args.max_new_tokens,
-            top_k=args.top_k,
-            top_p=args.top_p,
-            truncate=args.truncate,
-            stop=["<｜end▁of▁sentence｜>", "<｜begin▁of▁sentence｜>", "<｜User｜>", "<｜Assistant｜>"], #, "<think>"]
-        )
-        response = output.strip()
+    # for item in tqdm(data):
+    prompt = item['input_text']
+    output = query_llm(
+        prompt,
+        model,
+        tokenizer,
+        temperature=args.temperature,
+        max_new_tokens=args.max_new_tokens,
+        top_k=args.top_k,
+        top_p=args.top_p,
+        truncate=args.truncate,
+        stop=["<｜end▁of▁sentence｜>", "<｜begin▁of▁sentence｜>", "<｜User｜>", "<｜Assistant｜>"], #, "<think>"]
+    )
+    response = output.strip()
+    if response != "":
         item['output_text'] = response
         item["input_token_ids"] = tokenizer.encode(prompt)
         item["output_token_ids"] = tokenizer.encode(response)
@@ -139,14 +142,22 @@ def main():
         if item["_id"] not in has_data:
             data.append(item)
 
-    data_subsets = [data[i::args.n_proc] for i in range(args.n_proc)]
-    processes = []
-    for rank in range(args.n_proc):
-        p = mp.Process(target=get_pred, args=(data_subsets[rank], args, fout))
-        p.start()
-        processes.append(p)
-    for p in processes:
-        p.join()
+    with ThreadPoolExecutor(max_workers=args.n_proc) as executor:
+        # 提交任务到线程池。
+        futures = [
+            executor.submit(get_pred, item, args, fout) for item in data
+        ]
+        # 按完成顺序获取结果。
+        for future in tqdm(as_completed(futures), total=len(futures)):
+            future.result()
+    # data_subsets = [data[i::args.n_proc] for i in range(args.n_proc)]
+    # processes = []
+    # for rank in range(args.n_proc):
+    #     p = mp.Process(target=get_pred, args=(data_subsets[rank], args, fout))
+    #     p.start()
+    #     processes.append(p)
+    # for p in processes:
+    #     p.join()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
